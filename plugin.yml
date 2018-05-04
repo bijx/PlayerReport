@@ -1,0 +1,11 @@
+    name: PlayerReport
+    main: com.hyperspc.PR.PlayerReportMain
+    author: bijx
+    website: http://www.hyperspc.com/
+    version: 1.0.0
+    commands:
+     playerreport:
+      desciption: Fetches report on specified player.
+      aliases: [pr]
+      usage: /playerreport or /pr
+     
