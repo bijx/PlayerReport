@@ -3,60 +3,81 @@ package com.hyperspc.PR;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.math.BigDecimal;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
+import java.text.SimpleDateFormat;
 import java.util.Arrays;
+import java.util.Calendar;
+import java.util.Map;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.craftbukkit.v1_12_R1.inventory.CraftItemStack;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.BookMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 
-public class PlayerReportMain extends JavaPlugin{
-	
-	
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
+
+import mkremins.fanciful.FancyMessage;
+
+public class PlayerReportMain extends JavaPlugin {
+
 	public void OnEnable() {
 		this.saveDefaultConfig();
-		
+
 	}
-	
+
 	public void OnDisable() {
-		
+
 	}
-	
+
 	@Override
 	public boolean onCommand(final CommandSender s, final Command cmd, final String label, final String[] args) {
 		Player p = (Player) s;
-		if(label.equalsIgnoreCase("playerreport") || label.equalsIgnoreCase("playereport") || label.equalsIgnoreCase("pr")) {
-			if(args.length==1) {
+		if (label.equalsIgnoreCase("playerreport") || label.equalsIgnoreCase("playereport")
+				|| label.equalsIgnoreCase("pr")) {
+			if (args.length == 1) {
 				Player target = null;
-				for(Player player : Bukkit.getOnlinePlayers()){
-					if(player.getName().equals(args[0])) {
-						target=player;
+				for (Player player : Bukkit.getOnlinePlayers()) {
+					if (player.getName().equals(args[0])) {
+						target = player;
 						break;
 					}
 				}
-				if(target == null) {
+				if (target == null) {
 					format(p, "Player not found! Make sure they are online!");
-				}else {
+				} else {
+					format(p, "Generating report...");
 					DataLog(p, target, target.getAddress().getHostString());
 				}
-			}else {
-				format(p,"Correct Usage: /playerreport <player> or /pr <player>");
+			} else {
+				format(p, "Correct Usage: /playerreport <player> or /pr <player>");
+
 			}
 		}
-		
-		
+
 		return true;
 	}
-	
+
 	public void DataLog(Player requester, Player target, String ip) {
 		try {
-			//##### CAPTURE DATA FROM IP #####
-			String geolocation = "http://ip-api.com/line/"+ip;
+
+			// ##### CAPTURE DATA FROM IP #####
+			String geolocation = "http://ip-api.com/line/" + ip;
 			URL url = new URL(geolocation);
 			URLConnection urlConnection = url.openConnection();
 			InputStream is = urlConnection.getInputStream();
@@ -69,9 +90,9 @@ public class PlayerReportMain extends JavaPlugin{
 				sb.append(charArray, 0, numCharsRead);
 			}
 			String resultIP = sb.toString();
-			
-			//##### CAPTURE DATA FROM PLAYER STATISTICS #####
-			String webPage = "https://minecraft-statistic.net/api/player/info/"+target.getName();
+
+			// ##### CAPTURE DATA FROM PLAYER STATISTICS #####
+			String webPage = "https://minecraft-statistic.net/api/player/info/" + target.getName();
 			url = new URL(webPage);
 			urlConnection = url.openConnection();
 			is = urlConnection.getInputStream();
@@ -82,48 +103,170 @@ public class PlayerReportMain extends JavaPlugin{
 			while ((numCharsRead = isr.read(charArray)) > 0) {
 				sb.append(charArray, 0, numCharsRead);
 			}
-			String resultStats = sb.toString();
-			
-			
-			//Log IP data			
+			String statsData = sb.toString();
+
+			// ##### Log IP data #####
 			String[] ipData = resultIP.split("\n");
-			if(ipData[0].equals("success")) {
-				
-				PlayerData targetData = new PlayerData(target.getName(), ipData);
-			}else {
-				if(ipData[1].equals("private range")) {
-					format(requester, ChatColor.RED.toString() + "Error fetching data from servers. REASON: Private range (Server is likely LAN)");
-				}else if(ipData[1].equals("reserved range")) {
-					format(requester, ChatColor.RED.toString() + "Error fetching data from servers. REASON: Reserved range (Server is likey on private network)");
-				}else if(ipData[1].equals("invalid query")) {
-					format(requester, ChatColor.RED.toString() + "Error fetching data from servers. REASON: Invalid query (Target's hostname is likely incorrectly formatted)");
-				}else if(ipData[1].equals("quota")) {
-					format(requester, ChatColor.RED.toString() + "Error fetching data from servers. REASON: You have issued more than 150 requests in the last minute, please slow down.");
-				}else {
-					format(requester, ChatColor.RED.toString() + "Error fetching data from servers. REASON: Unexpected error, we've never seen this before!");
+
+			// ##### Log stats data #####
+
+			if (ipData[0].equals("success")) {
+				PlayerData targetData = new PlayerData(target.getName(), ipData, statsData);
+				Inventory inventory = requester.getInventory();
+				int space = 0;
+				for (ItemStack content : inventory.getContents()) {
+					if (content == null) {
+						space++;
+					}
 				}
-				
+				if (requester instanceof Player) {
+					printDataToRequester(requester, targetData);
+
+					if (space > 0) {
+						ItemStack book = new ItemStack(Material.WRITTEN_BOOK);
+						BookMeta meta = (BookMeta) book.getItemMeta();
+						meta.addPage("");
+						meta.addPage("");
+						meta.addPage("");
+						meta.addPage("");
+						meta.addPage("");
+						meta.addPage("");
+						meta.setTitle("Report for " + targetData.getPlayerName());
+						meta.setAuthor("PlayerReports | Generated by: " + requester.getName());
+						meta.setPage(1, "PlayerReport Generated for " + targetData.getPlayerName()
+								+ ", \n\ngenerated by: " + requester.getName() + "\n\non "
+								+ new SimpleDateFormat("yyyy-MM-dd_HH:mm:ss").format(Calendar.getInstance().getTime()));
+						meta.setPage(2, "Player Info: \n------------\nUUID: " + targetData.getUuid()
+								+ "\nAccount Licensed: " + targetData.getLicensed() + "\nIP: " + targetData.getIp() + "\n\nTotal Playtime: " + targetData.getTotalPlay() + " hours");
+						meta.setPage(3,
+								"Player Details: \n------------\nCountry: " + targetData.getCountry()
+										+ "\nCountry Code: " + targetData.getCountryCode() + "\nRegion: "
+										+ targetData.getRegionName() + "\nCity: " + targetData.getCity()
+										+ "\nZip/Postal Code: " + targetData.getZip());
+						meta.setPage(4,
+								"Player Details (cont'd): \n------------\nLong: " + targetData.getLon() + "\nLat: "
+										+ targetData.getLat() + "\nTimezone: " + targetData.getTimezone() + "\nISP: "
+										+ targetData.getIsp() + "\nASN: " + targetData.getAs());
+						meta.setPage(5, "(Blank page)");
+						meta.setPage(6,
+								"\n\n\n\n\n\nAll data collected by PR is public information accessible from the internet. Please use data with care.");
+						book.setItemMeta(meta);
+						((Player) requester).getInventory().addItem(book);
+						format(requester, "Generated report, book placed in inventory.");
+					}
+				} else {
+					printDataToRequesterConsole((CommandSender)requester, targetData);
+				}
+
+			} else {
+				if (requester instanceof Player) {
+					if (ipData[1].equals("private range")) {
+						format(requester, ChatColor.RED.toString()
+								+ "Error fetching data from servers. REASON: Private range (Server is likely LAN)");
+					} else if (ipData[1].equals("reserved range")) {
+						format(requester, ChatColor.RED.toString()
+								+ "Error fetching data from servers. REASON: Reserved range (Server is likey on private network)");
+					} else if (ipData[1].equals("invalid query")) {
+						format(requester, ChatColor.RED.toString()
+								+ "Error fetching data from servers. REASON: Invalid query (Target's hostname is likely incorrectly formatted)");
+					} else if (ipData[1].equals("quota")) {
+						format(requester, ChatColor.RED.toString()
+								+ "Error fetching data from servers. REASON: You have issued more than 150 requests in the last minute, please slow down.");
+					} else {
+						format(requester, ChatColor.RED.toString()
+								+ "Error fetching data from servers. REASON: Unexpected error, we've never seen this before!");
+					}
+				} else {
+					if (ipData[1].equals("private range")) {
+						formatNoColor(requester,
+								"Error fetching data from servers. REASON: Private range (Server is likely LAN)");
+					} else if (ipData[1].equals("reserved range")) {
+						formatNoColor(requester,
+								"Error fetching data from servers. REASON: Reserved range (Server is likey on private network)");
+					} else if (ipData[1].equals("invalid query")) {
+						formatNoColor(requester,
+								"Error fetching data from servers. REASON: Invalid query (Target's hostname is likely incorrectly formatted)");
+					} else if (ipData[1].equals("quota")) {
+						formatNoColor(requester,
+								"Error fetching data from servers. REASON: You have issued more than 150 requests in the last minute, please slow down.");
+					} else {
+						formatNoColor(requester,
+								"Error fetching data from servers. REASON: Unexpected error, we've never seen this before!");
+					}
+				}
+
 			}
-			
-			
-			
-			
-			
-			
+
 		} catch (MalformedURLException e) {
 			e.printStackTrace();
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
-				
+
 	}
-	
-	
+
+	public void printDataToRequester(Player p, PlayerData td) {
+		format(p, "------------------------------------");
+		format(p, "PlayerReport for: " + ChatColor.ITALIC.toString() + td.getPlayerName());
+		format(p,
+				"Generated on " + new SimpleDateFormat("yyyy-MM-dd_HH:mm:ss").format(Calendar.getInstance().getTime()));
+		format(p, "");
+		format(p, "UUID: " + td.getUuid());
+		format(p, "Account Licensed: " + td.getLicensed());
+		format(p, "IP: " + td.getIp());
+		format(p, "Total Playtime: " + td.getTotalPlay() + " hours");
+		format(p, "");
+		format(p, "Country (and code): " + td.getCountry() + " (" + td.getCountryCode() + ")");
+		format(p, "Region (and code): " + td.getRegionName() + " (" + td.getRegion() + ")");
+		format(p, "City: " + td.getCity());
+		format(p, "Zip/Postal Code: " + td.getZip());
+		format(p, "Longitude & Latitude: " + td.getLon() + ", " + td.getLat());
+
+		new FancyMessage("[CLICK HERE FOR ESTIMATED GOOGLE MAPS]").color(ChatColor.RED)
+				.link("https://www.google.com/maps/?q=" + td.getLat() + "," + td.getLon()).send((CommandSender) p);
+		;
+		format(p, "Timezone: " + td.getTimezone());
+		format(p, "ISP: " + td.getIsp());
+		format(p, "ASN: " + td.getAs());
+		format(p, "------------------------------------");
+	}
+
 	public void format(Player p, String msg) {
-		
-		p.sendMessage(ChatColor.BOLD + ChatColor.DARK_GREEN.toString() + "["+ChatColor.LIGHT_PURPLE.toString()+"PlayerReport"+ChatColor.DARK_GREEN.toString()+"] "+ChatColor.RESET.toString()+ msg);
-		
+
+		p.sendMessage(ChatColor.BOLD + ChatColor.DARK_GREEN.toString() + "[" + ChatColor.LIGHT_PURPLE.toString()
+				+ "PlayerReport" + ChatColor.DARK_GREEN.toString() + "] " + ChatColor.RESET.toString() + msg);
+
 	}
-	
-	
+
+	public void printDataToRequesterConsole(CommandSender p, PlayerData td) {
+		formatNoColor(p, "------------------------------------");
+		formatNoColor(p, "PlayerReport for: " + td.getPlayerName());
+		formatNoColor(p,
+				"Generated on " + new SimpleDateFormat("yyyy-MM-dd_HH:mm:ss").format(Calendar.getInstance().getTime()));
+		formatNoColor(p, "");
+		formatNoColor(p, "UUID: " + td.getUuid());
+		formatNoColor(p, "Account Licensed: " + td.getLicensed());
+		formatNoColor(p, "IP: " + td.getIp());
+		formatNoColor(p, "Total Playtime: " + td.getTotalPlay() + " hours");
+		formatNoColor(p, "");
+		formatNoColor(p, "Country (and code): " + td.getCountry() + " (" + td.getCountryCode() + ")");
+		formatNoColor(p, "Region (and code): " + td.getRegionName() + " (" + td.getRegion() + ")");
+		formatNoColor(p, "City: " + td.getCity());
+		formatNoColor(p, "Zip/Postal Code: " + td.getZip());
+		formatNoColor(p, "Longitude & Latitude: " + td.getLon() + ", " + td.getLat());
+		formatNoColor(p, "Timezone: " + td.getTimezone());
+		formatNoColor(p, "ISP: " + td.getIsp());
+		formatNoColor(p, "ASN: " + td.getAs());
+		formatNoColor(p, "------------------------------------");
+	}
+
+	public void formatNoColor(CommandSender p, String msg) {
+
+		p.sendMessage("[PlayerReport]" + msg);
+
+	}
+
 }
+
+// Todo: Config{Save to file, create book}, parse JSON from stats site,
+// permissions, more metrics, console/player differences
